@@ -8,7 +8,6 @@ const password = process.env.PASSWORD;
 
 const app = express();
 const port = 3000;
-let data = [];
 
 const db = new pg.Client({
   user: "postgres",
@@ -20,23 +19,28 @@ const db = new pg.Client({
 
 db.connect();
 
-db.query("SELECT * FROM visited_countries", (err, res) => {
-  if (err) {
-    console.error("Error executing query: ", err.stack);
-  } else {
-    data = res.rows;
-  }
-
-  db.end();
-});
-
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static("public"));
 
 app.get("/", async (req, res) => {
-  res.render("index.ejs", { countries: data });
+  const result = await db.query("SELECT country_code FROM visited_countries");
+
+  const codes = result.rows.map((country) => country.country_code);
+
+  res.render("index.ejs", { countries: codes, total: codes.length });
 });
 
 app.listen(port, () => {
   console.log(`Server running on http://localhost:${port}`);
+});
+
+// Close the database connection when the process is exiting
+process.on("exit", () => {
+  db.end();
+});
+
+// Close the database connection when the server is stopping
+process.on("SIGINT", () => {
+  db.end();
+  process.exit();
 });
