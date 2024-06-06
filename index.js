@@ -48,8 +48,8 @@ app.post("/add", async (req, res) => {
 
     // Check if the country exists in the database
     const countryCodeRow = await db.query(
-      `SELECT country_code FROM countries WHERE country_name = $1`,
-      [countryName]
+      "SELECT country_code FROM countries WHERE LOWER(country_name) LIKE '%' || $1 || '%';",
+      [countryName.toLowerCase()]
     );
 
     if (countryCodeRow.rows.length === 0) {
