@@ -27,7 +27,14 @@ app.get("/", async (req, res) => {
 
   const codes = result.rows.map((country) => country.country_code);
 
-  res.render("index.ejs", { countries: codes, total: codes.length });
+  // Pass the error message from the query parameter to the EJS template
+  const errorMessage = req.query.error;
+
+  res.render("index.ejs", {
+    countries: codes,
+    total: codes.length,
+    error: errorMessage,
+  });
 });
 
 app.post("/add", async (req, res) => {
@@ -50,6 +57,17 @@ app.post("/add", async (req, res) => {
     }
 
     const countryCode = countryCodeRow.rows[0].country_code;
+
+    // Check if the country code already exists in the visited_countries table
+    const existingCountryRow = await db.query(
+      `SELECT * FROM visited_countries WHERE country_code = $1`,
+      [countryCode]
+    );
+
+    if (existingCountryRow.rows.length > 0) {
+      // Country code already exists in the visited_countries table
+      return res.redirect("/?error=Country has already been visited");
+    }
 
     // Insert the country code into the visited_countries table
     await db.query("INSERT INTO visited_countries (country_code) VALUES ($1)", [
