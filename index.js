@@ -30,6 +30,39 @@ app.get("/", async (req, res) => {
   res.render("index.ejs", { countries: codes, total: codes.length });
 });
 
+app.post("/add", async (req, res) => {
+  try {
+    const countryName = req.body.country;
+
+    // Check if the country name is provided
+    if (!countryName) {
+      return res.redirect("/?error=Please provide a country name");
+    }
+
+    // Check if the country exists in the database
+    const countryCodeRow = await db.query(
+      `SELECT country_code FROM countries WHERE country_name = $1`,
+      [countryName]
+    );
+
+    if (countryCodeRow.rows.length === 0) {
+      return res.redirect("/?error=Country not found in the database");
+    }
+
+    const countryCode = countryCodeRow.rows[0].country_code;
+
+    // Insert the country code into the visited_countries table
+    await db.query("INSERT INTO visited_countries (country_code) VALUES ($1)", [
+      countryCode,
+    ]);
+
+    res.redirect("/");
+  } catch (err) {
+    console.error("Error adding country:", err);
+    res.redirect("/?error=An error occurred while adding the country");
+  }
+});
+
 app.listen(port, () => {
   console.log(`Server running on http://localhost:${port}`);
 });
