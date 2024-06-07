@@ -17,24 +17,37 @@ const db = new pg.Client({
   port: 5432,
 });
 
+// Global variable to store the countries (or use session storage)
+let selectedCountries = [];
+
 db.connect();
 
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static("public"));
 
 app.get("/", async (req, res) => {
-  const result = await db.query("SELECT country_code FROM visited_countries");
+  const userId = req.query.userId; // Get the user ID from the query param
 
-  const codes = result.rows.map((country) => country.country_code);
+  // If userId is present, use selectedCountries; otherwise, use an empty array
+  const codes = userId ? selectedCountries : [];
 
-  // Pass the error message from the query parameter to the EJS template
+  const usersData = await db.query("SELECT * FROM users");
+  const users = usersData.rows;
+
   const errorMessage = req.query.error;
 
   res.render("index.ejs", {
     countries: codes,
     total: codes.length,
     error: errorMessage,
+    users: users,
+    color: "teal",
   });
+
+  // Reset selectedCountries for the next request
+  if (userId) {
+    selectedCountries = [];
+  }
 });
 
 app.post("/add", async (req, res) => {
@@ -81,6 +94,29 @@ app.post("/add", async (req, res) => {
   }
 });
 
+app.post("/user", async (req, res) => {
+  if (req.body.user) {
+    const userId = req.body.user;
+    const result = await db.query(
+      `SELECT country_code FROM users JOIN visited_countries ON $1 = visited_countries.user_id`,
+      [userId]
+    );
+    selectedCountries = result.rows.map((row) => row.country_code);
+
+    // Redirect to the GET route with the user ID as a query param
+    res.redirect(`/?userId=${userId}`);
+  } else if (req.body.add) {
+    console.log("Adding new family member");
+    // Handle adding a new family member
+    res.redirect("/"); // Redirect without any query params
+  }
+});
+
+app.post("/new", async (req, res) => {
+  //Hint: The RETURNING keyword can return the data that was inserted.
+  //https://www.postgresql.org/docs/current/dml-returning.html
+});
+
 app.listen(port, () => {
   console.log(`Server running on http://localhost:${port}`);
 });
@@ -95,3 +131,7 @@ process.on("SIGINT", () => {
   db.end();
   process.exit();
 });
+
+// SELECT name, country_code FROM users
+// JOIN visited_countries
+// ON users.id = visited_countries.user_id
