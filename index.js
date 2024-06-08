@@ -19,6 +19,7 @@ const db = new pg.Client({
 
 // Global variable to store the countries (or use session storage)
 let selectedCountries = [];
+let currentUser;
 
 db.connect();
 
@@ -34,6 +35,8 @@ app.get("/", async (req, res) => {
   const usersData = await db.query("SELECT * FROM users");
   const users = usersData.rows;
 
+  const color = userId ? users[userId - 1].color : "teal";
+
   const errorMessage = req.query.error;
 
   res.render("index.ejs", {
@@ -41,13 +44,8 @@ app.get("/", async (req, res) => {
     total: codes.length,
     error: errorMessage,
     users: users,
-    color: "teal",
+    color: color,
   });
-
-  // Reset selectedCountries for the next request
-  if (userId) {
-    selectedCountries = [];
-  }
 });
 
 app.post("/add", async (req, res) => {
@@ -73,48 +71,93 @@ app.post("/add", async (req, res) => {
 
     // Check if the country code already exists in the visited_countries table
     const existingCountryRow = await db.query(
-      `SELECT * FROM visited_countries WHERE country_code = $1`,
-      [countryCode]
+      "SELECT country_code FROM users JOIN visited_countries ON users.id = visited_countries.user_id WHERE visited_countries.country_code = $1",
+      [currentUser]
     );
 
-    if (existingCountryRow.rows.length > 0) {
+    const existingCountries = existingCountryRow.rows.map(
+      (row) => row.country_code
+    );
+    const countryAlrdVisited = existingCountries.find(
+      (country) => country === `${countryCode}`
+    );
+    if (countryAlrdVisited != undefined) {
       // Country code already exists in the visited_countries table
       return res.redirect("/?error=Country has already been visited");
     }
 
     // Insert the country code into the visited_countries table
-    await db.query("INSERT INTO visited_countries (country_code) VALUES ($1)", [
-      countryCode,
-    ]);
+    await db.query(
+      "INSERT INTO visited_countries (country_code, user_id) VALUES ($1, $2)",
+      [countryCode, currentUser]
+    );
 
-    res.redirect("/");
+    res.redirect(`/user?user=${currentUser}`);
   } catch (err) {
     console.error("Error adding country:", err);
     res.redirect("/?error=An error occurred while adding the country");
   }
 });
 
-app.post("/user", async (req, res) => {
-  if (req.body.user) {
-    const userId = req.body.user;
-    const result = await db.query(
-      `SELECT country_code FROM users JOIN visited_countries ON $1 = visited_countries.user_id`,
-      [userId]
-    );
-    selectedCountries = result.rows.map((row) => row.country_code);
+app
+  .route("/user")
+  .get(async (req, res) => {
+    const userId = req.query.user;
+    if (userId) {
+      currentUser = userId;
 
-    // Redirect to the GET route with the user ID as a query param
-    res.redirect(`/?userId=${userId}`);
-  } else if (req.body.add) {
-    console.log("Adding new family member");
-    // Handle adding a new family member
-    res.redirect("/"); // Redirect without any query params
-  }
-});
+      const result = await db.query(
+        "SELECT country_code FROM users JOIN visited_countries ON $1 = visited_countries.user_id GROUP BY country_code",
+        [userId]
+      );
+
+      selectedCountries = result.rows.map((row) => row.country_code);
+
+      // Redirect to the root route with userId
+      res.redirect(`/?userId=${userId}`);
+    } else {
+      // Handle case when no user is provided
+      res.redirect("/?error=No user specified");
+    }
+  })
+  .post(async (req, res) => {
+    if (req.body.user) {
+      const userId = req.body.user;
+      currentUser = userId;
+
+      const result = await db.query(
+        "SELECT country_code FROM users JOIN visited_countries ON $1 = visited_countries.user_id GROUP BY country_code",
+        [userId]
+      );
+
+      selectedCountries = result.rows.map((row) => row.country_code);
+
+      // Redirect to the root route with userId
+      res.redirect(`/?userId=${userId}`);
+    } else if (req.body.add) {
+      console.log("Adding new family member");
+      // Handle adding a new family member
+      res.render("new.ejs");
+    } else {
+      // Handle case when no user is provided
+      res.redirect("/?error=No user specified");
+    }
+  });
 
 app.post("/new", async (req, res) => {
   //Hint: The RETURNING keyword can return the data that was inserted.
   //https://www.postgresql.org/docs/current/dml-returning.html
+  try {
+    const result = await db.query(
+      "INSERT INTO users (name, color) VALUES ($1, $2) RETURNING *;",
+      [req.body.name, req.body.color]
+    );
+    const newUser = result.rows[0];
+    res.redirect(`/?userId=${newUser.id}`);
+  } catch (err) {
+    console.error("Error adding family member:", err);
+    res.redirect("/?error=An error occurred while adding a new family member");
+  }
 });
 
 app.listen(port, () => {
@@ -131,7 +174,3 @@ process.on("SIGINT", () => {
   db.end();
   process.exit();
 });
-
-// SELECT name, country_code FROM users
-// JOIN visited_countries
-// ON users.id = visited_countries.user_id
